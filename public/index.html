@@ -53,6 +53,12 @@
   .badge-shield { background:var(--pink); color:#fff; }
   .badge-speed { background:var(--gold); color:#000; }
   .badge-inv { background:#aaa; color:#000; }
+  .prey-section { margin-top:4px; }
+  .prey-toggle { font-size:.68rem; color:#aaa; cursor:pointer; user-select:none; display:flex; align-items:center; gap:4px; background:none; border:none; padding:2px 0; width:100%; text-align:left; }
+  .prey-toggle:hover { color:#fff; }
+  .prey-list { margin-top:3px; display:flex; flex-direction:column; gap:2px; }
+  .prey-list.collapsed { display:none; }
+  .prey-name { font-size:.68rem; padding:2px 6px; border-radius:6px; color:#fff; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #canvas-wrap { flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
   canvas { image-rendering:pixelated; display:block; }
   #hud { position:absolute; top:10px; left:50%; transform:translateX(-50%); display:flex; gap:16px; pointer-events:none; }
@@ -157,7 +163,7 @@
   let myId = null;
   let gameState = { players: {}, pickups: {}, mapSize: 40, tiles: [] };
   let camera = { x: 0, y: 0 };
-  let reshuffleIn = 5000;
+  let reshuffleIn = 8000;
   let reshuffleTimer = null;
   let reshuffleStart = Date.now();
   let inputCooldown = false;
@@ -207,7 +213,8 @@
 
   // ── Canvas / Tile Rendering ────────────────────────────────────────────
   const TILE_SIZE = 52;  // zoomed in - player sees ~7 tiles each side
-  const TILE_COLORS = { white: '#d0d4de', red: '#c0392b', blue: '#2980b9', green: '#27ae60', void: '#0a0a0a' };
+  const TILE_BASE   = { white: '#c8cdd8', red: '#7a1515', blue: '#0d3b6e', green: '#0d4a20' };
+  const TILE_GLOW   = { white: null, red: '#e74c3c', blue: '#3498db', green: '#2ecc71' };
   const PLAYER_COLORS_HEX = { red: '#e74c3c', blue: '#3498db', green: '#2ecc71' };
   const PLAYER_BORDER = { red: '#c0392b', blue: '#2471a3', green: '#1e8449' };
 
@@ -219,22 +226,33 @@
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
+  function clampCamera(cx, cy) {
+    const mapPx = gameState.mapSize * TILE_SIZE;
+    const minX = 0;
+    const minY = 0;
+    const maxX = Math.max(0, mapPx - canvas.width);
+    const maxY = Math.max(0, mapPx - canvas.height);
+    return { x: Math.max(minX, Math.min(maxX, cx)), y: Math.max(minY, Math.min(maxY, cy)) };
+  }
+
   function snapCamera() {
     const me = gameState.players[myId];
     if (!me) return;
-    const tw = TILE_SIZE, th = TILE_SIZE;
-    camera.x = me.x * tw + tw / 2 - canvas.width / 2;
-    camera.y = me.y * th + th / 2 - canvas.height / 2;
+    const raw = { x: me.x * TILE_SIZE + TILE_SIZE / 2 - canvas.width / 2,
+                  y: me.y * TILE_SIZE + TILE_SIZE / 2 - canvas.height / 2 };
+    const c = clampCamera(raw.x, raw.y);
+    camera.x = c.x; camera.y = c.y;
   }
 
   function updateCamera() {
     const me = gameState.players[myId];
     if (!me) return;
-    const tw = TILE_SIZE, th = TILE_SIZE;
-    const targetX = me.x * tw + tw / 2 - canvas.width / 2;
-    const targetY = me.y * th + th / 2 - canvas.height / 2;
-    camera.x += (targetX - camera.x) * 0.15;
-    camera.y += (targetY - camera.y) * 0.15;
+    const targetX = me.x * TILE_SIZE + TILE_SIZE / 2 - canvas.width / 2;
+    const targetY = me.y * TILE_SIZE + TILE_SIZE / 2 - canvas.height / 2;
+    const rawX = camera.x + (targetX - camera.x) * 0.15;
+    const rawY = camera.y + (targetY - camera.y) * 0.15;
+    const c = clampCamera(rawX, rawY);
+    camera.x = c.x; camera.y = c.y;
   }
 
   function drawGame() {
@@ -248,16 +266,29 @@
     const oy = Math.round(-camera.y);
 
     // Tiles
+    const now = Date.now();
     for (let y = 0; y < ms; y++) {
       for (let x = 0; x < ms; x++) {
         const tile = gameState.tiles[y * ms + x] || 'white';
-        ctx.fillStyle = TILE_COLORS[tile] || '#ccc';
-        ctx.fillRect(ox + x * ts, oy + y * ts, ts - 1, ts - 1);
+        const tx = ox + x * ts, ty = oy + y * ts;
+        const glow = TILE_GLOW[tile];
+        // Base fill
+        ctx.fillStyle = TILE_BASE[tile] || '#555';
+        ctx.fillRect(tx, ty, ts - 1, ts - 1);
+        // Colored light overlay with radial gradient
+        if (glow) {
+          const grad = ctx.createRadialGradient(tx + ts/2, ty + ts/2, 0, tx + ts/2, ty + ts/2, ts * 0.72);
+          grad.addColorStop(0, glow + 'cc');
+          grad.addColorStop(1, glow + '11');
+          ctx.fillStyle = grad;
+          ctx.fillRect(tx, ty, ts - 1, ts - 1);
+        }
+        // Tile border
+        ctx.strokeStyle = glow ? glow + '55' : 'rgba(0,0,0,0.18)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tx + 0.5, ty + 0.5, ts - 2, ts - 2);
       }
     }
-
-    // Void border glow
-    const now = Date.now();
 
     // Pickups
     for (const pk of Object.values(gameState.pickups)) {
@@ -279,47 +310,75 @@
   }
 
   function drawPickup(type, cx, cy, ts) {
-    const r = ts * 0.26;
+    const r = ts * 0.28;
+    const t = Date.now();
     ctx.save();
-    ctx.shadowBlur = 12;
     if (type === 'speed') {
-      ctx.shadowColor = '#f1c40f';
-      ctx.fillStyle = '#f1c40f';
-      drawGem(ctx, cx, cy, r);
+      // Yellow lightning bolt
+      ctx.shadowBlur = 18; ctx.shadowColor = '#f1c40f';
+      ctx.fillStyle = '#ffe033';
+      ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 1.5;
+      const s = r * 0.9;
+      ctx.beginPath();
+      ctx.moveTo(cx + s*0.2,  cy - s);
+      ctx.lineTo(cx - s*0.3,  cy + s*0.05);
+      ctx.lineTo(cx + s*0.1,  cy + s*0.05);
+      ctx.lineTo(cx - s*0.2,  cy + s);
+      ctx.lineTo(cx + s*0.3,  cy - s*0.05);
+      ctx.lineTo(cx - s*0.1,  cy - s*0.05);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
     } else if (type === 'shield') {
-      ctx.shadowColor = '#e91e8c';
-      ctx.fillStyle = '#e91e8c';
-      drawGem(ctx, cx, cy, r);
+      // Purple shield symbol
+      ctx.shadowBlur = 18; ctx.shadowColor = '#9b59b6';
+      ctx.fillStyle = '#c39bd3';
+      ctx.strokeStyle = '#6c3483'; ctx.lineWidth = 2;
+      const s = r * 1.0;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - s);
+      ctx.lineTo(cx + s*0.75, cy - s*0.4);
+      ctx.lineTo(cx + s*0.75, cy + s*0.2);
+      ctx.quadraticCurveTo(cx + s*0.75, cy + s*0.9, cx, cy + s);
+      ctx.quadraticCurveTo(cx - s*0.75, cy + s*0.9, cx - s*0.75, cy + s*0.2);
+      ctx.lineTo(cx - s*0.75, cy - s*0.4);
+      ctx.closePath();
+      ctx.fill(); ctx.stroke();
+      // Shield cross detail
+      ctx.strokeStyle = '#6c3483'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(cx, cy - s*0.5); ctx.lineTo(cx, cy + s*0.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - s*0.4, cy); ctx.lineTo(cx + s*0.4, cy); ctx.stroke();
     } else if (type === 'portal_purple') {
-      ctx.shadowColor = '#9b59b6';
-      ctx.strokeStyle = '#9b59b6';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(155,89,182,.35)';
-      ctx.fill();
+      // Swirling purple portal
+      const spin = t / 600;
+      ctx.shadowBlur = 24; ctx.shadowColor = '#9b59b6';
+      for (let i = 3; i >= 0; i--) {
+        const pr = r * (1 - i * 0.18);
+        const alpha = 0.15 + i * 0.2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, pr, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(155,89,182,${alpha})`;
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#d7bde2'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(cx, cy, r, spin, spin + Math.PI * 1.4); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, r * 0.6, spin + Math.PI, spin + Math.PI * 2.4); ctx.stroke();
     } else if (type === 'portal_green') {
-      ctx.shadowColor = '#1abc9c';
-      ctx.strokeStyle = '#1abc9c';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(cx, cy, r, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = 'rgba(26,188,156,.35)';
-      ctx.fill();
+      // Swirling teal portal
+      const spin = t / 600;
+      ctx.shadowBlur = 24; ctx.shadowColor = '#1abc9c';
+      for (let i = 3; i >= 0; i--) {
+        const pr = r * (1 - i * 0.18);
+        const alpha = 0.15 + i * 0.2;
+        ctx.beginPath();
+        ctx.arc(cx, cy, pr, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(26,188,156,${alpha})`;
+        ctx.fill();
+      }
+      ctx.strokeStyle = '#a9dfbf'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); ctx.arc(cx, cy, r, spin, spin + Math.PI * 1.4); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx, cy, r * 0.6, spin + Math.PI, spin + Math.PI * 2.4); ctx.stroke();
     }
     ctx.restore();
-  }
-
-  function drawGem(ctx, cx, cy, r) {
-    ctx.beginPath();
-    ctx.moveTo(cx, cy - r);
-    ctx.lineTo(cx + r, cy);
-    ctx.lineTo(cx, cy + r);
-    ctx.lineTo(cx - r, cy);
-    ctx.closePath();
-    ctx.fill();
   }
 
   // Track last known position per player to determine move direction
@@ -470,20 +529,43 @@
     reshuffleCountdown.textContent = (remaining / 1000).toFixed(1) + 's';
   }
 
+  // Which color does attacker catch?
+  const PREY_COLOR = { red: 'blue', blue: 'green', green: 'red' };
+  // Track collapse state per player card
+  const preyCollapsed = {};
+
   function updateSidebar() {
     const sorted = Object.values(gameState.players).sort((a, b) => b.lives - a.lives);
     sidebarPlayers.innerHTML = '';
+    const now = Date.now();
     for (const pl of sorted) {
       const card = document.createElement('div');
       card.className = 'player-card' + (pl.alive ? '' : ' dead');
       card.style.borderLeftColor = PLAYER_COLORS_HEX[pl.color] || '#555';
       const hearts = '❤'.repeat(pl.lives) + '♡'.repeat(Math.max(0, 3 - pl.lives));
       let badges = '';
-      const now = Date.now();
       if (pl.shield && pl.shieldEnd > now) badges += '<span class="badge badge-shield">SHIELD</span>';
       if (pl.speedBoost && pl.speedEnd > now) badges += '<span class="badge badge-speed">SPEED</span>';
       if (pl.invincible && pl.invincibleEnd > now) badges += '<span class="badge badge-inv">SAFE</span>';
       const isMe = pl.id === myId;
+
+      // Prey list: who can this player catch right now?
+      const preyColor = PREY_COLOR[pl.color];
+      const preyPlayers = preyColor
+        ? Object.values(gameState.players).filter(p => p.alive && p.id !== pl.id && p.color === preyColor)
+        : [];
+      const collapsed = preyCollapsed[pl.id] !== false; // default collapsed
+      const preyHtml = preyPlayers.length > 0 ? `
+        <div class="prey-section">
+          <button class="prey-toggle" data-pid="${pl.id}">
+            <span>${collapsed ? '▶' : '▼'}</span>
+            <span style="color:${PLAYER_COLORS_HEX[preyColor]||'#aaa'}">🎯 ${preyPlayers.length} target${preyPlayers.length>1?'s':''}</span>
+          </button>
+          <div class="prey-list ${collapsed ? 'collapsed' : ''}">
+            ${preyPlayers.map(p => `<div class="prey-name" style="background:${PLAYER_COLORS_HEX[preyColor]||'#333'}44;border-left:2px solid ${PLAYER_COLORS_HEX[preyColor]||'#aaa'}">${escHtml(p.name)}</div>`).join('')}
+          </div>
+        </div>` : '';
+
       card.innerHTML = `
         <div class="pname">${escHtml(pl.name)}${isMe ? ' <span style="color:#f1c40f;font-size:.7rem">YOU</span>' : ''}</div>
         <div class="pinfo">
@@ -492,9 +574,18 @@
           ${pl.alive ? '' : '<span style="color:#e74c3c">💀</span>'}
         </div>
         ${badges ? `<div class="badges">${badges}</div>` : ''}
+        ${preyHtml}
       `;
       sidebarPlayers.appendChild(card);
     }
+    // Wire up prey toggle buttons
+    sidebarPlayers.querySelectorAll('.prey-toggle').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pid = btn.dataset.pid;
+        preyCollapsed[pid] = !preyCollapsed[pid];
+        updateSidebar();
+      });
+    });
   }
 
   function escHtml(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -603,7 +694,7 @@
         if (msg.tiles) gameState.tiles = msg.tiles;
         if (msg.mapSize) gameState.mapSize = msg.mapSize;
         spectateOverlay.classList.remove('show');
-        reshuffleIn = 5000;
+        reshuffleIn = 8000;
         reshuffleStart = Date.now();
         showScreen('game');
         resizeCanvas();
