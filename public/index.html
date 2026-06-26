@@ -142,7 +142,8 @@
 <div id="endScreen" class="screen">
   <h2>Game Over!</h2>
   <div class="winner" id="winnerLabel">Player 1 Wins!</div>
-  <button class="btn btn-restart" id="restartBtn">Play Again</button>
+  <button class="btn btn-restart" id="restartBtn">🔄 Play Again</button>
+  <button class="btn" id="forceResetEndBtn" style="background:#333;color:#aaa;font-size:.85rem;margin-top:-4px;">⚠️ Force Reset &amp; Reload</button>
 </div>
 
 <div id="toast"></div>
@@ -205,7 +206,7 @@
   }
 
   // ── Canvas / Tile Rendering ────────────────────────────────────────────
-  const TILE_SIZE = 28;
+  const TILE_SIZE = 52;  // zoomed in - player sees ~7 tiles each side
   const TILE_COLORS = { white: '#d0d4de', red: '#c0392b', blue: '#2980b9', green: '#27ae60', void: '#0a0a0a' };
   const PLAYER_COLORS_HEX = { red: '#e74c3c', blue: '#3498db', green: '#2ecc71' };
   const PLAYER_BORDER = { red: '#c0392b', blue: '#2471a3', green: '#1e8449' };
@@ -321,16 +322,47 @@
     ctx.fill();
   }
 
+  // Track last known position per player to determine move direction
+  const playerMoveDir = {};
+  const playerLastPos = {};
+
   function drawPlayer(pl, px, py, ts, now) {
     const isMe = pl.id === myId;
     const cx = px + ts / 2, cy = py + ts / 2;
-    const r = ts * 0.36;
+    const baseR = ts * 0.36;
+
+    // Detect movement direction from position changes
+    const lastPos = playerLastPos[pl.id];
+    let moveDir = playerMoveDir[pl.id] || null;
+    if (lastPos && (lastPos.x !== pl.x || lastPos.y !== pl.y)) {
+      moveDir = { dx: pl.x - lastPos.x, dy: pl.y - lastPos.y };
+      playerMoveDir[pl.id] = moveDir;
+    }
+    playerLastPos[pl.id] = { x: pl.x, y: pl.y };
+
+    // Detect if moving: check keysDown for own player, use recent moveDir for others
+    const isMoving = isMe
+      ? Object.keys(keysDown).some(k => KEY_MAP[k])
+      : (moveDir && (Date.now() - (pl._lastMoveTime || 0) < 300));
+
+    // Breathing animation (at rest)
+    const breathScale = isMoving ? 1.0 : 1 + Math.sin(now / 500) * 0.045;
+
+    // Squish based on move direction
+    let rx = baseR * breathScale;
+    let ry = baseR * breathScale;
+    if (isMoving && moveDir) {
+      const squishX = moveDir.dx !== 0 ? 1.22 : 0.82;
+      const squishY = moveDir.dy !== 0 ? 1.22 : 0.82;
+      rx = baseR * squishX;
+      ry = baseR * squishY;
+    }
 
     ctx.save();
 
     // Shield glow
     if (pl.shield) {
-      ctx.shadowBlur = 18;
+      ctx.shadowBlur = 22;
       ctx.shadowColor = '#e91e8c';
     }
     // Invincible flicker
@@ -338,10 +370,10 @@
       ctx.globalAlpha = 0.4;
     }
 
-    // Body
+    // Body (ellipse for squish effect)
     ctx.fillStyle = PLAYER_COLORS_HEX[pl.color] || '#fff';
     ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
     ctx.fill();
 
     // Border
@@ -349,31 +381,59 @@
     ctx.lineWidth = isMe ? 3 : 2;
     ctx.stroke();
 
+    // Eyes
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = pl.invincible && Math.floor(now / 120) % 2 === 0 ? 0.4 : 1;
+    const eyeOffsetX = rx * 0.32;
+    const eyeOffsetY = ry * 0.22;
+    const eyeR = rx * 0.13;
+    const pupilR = eyeR * 0.55;
+    // Direction eyes look: toward move dir, else forward (slight down)
+    const eyeLookX = moveDir ? moveDir.dx * rx * 0.1 : 0;
+    const eyeLookY = moveDir ? moveDir.dy * ry * 0.1 : ry * 0.08;
+    // Left eye
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx - eyeOffsetX, cy - eyeOffsetY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(cx - eyeOffsetX + eyeLookX, cy - eyeOffsetY + eyeLookY, pupilR, 0, Math.PI * 2);
+    ctx.fill();
+    // Right eye
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(cx + eyeOffsetX, cy - eyeOffsetY, eyeR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.arc(cx + eyeOffsetX + eyeLookX, cy - eyeOffsetY + eyeLookY, pupilR, 0, Math.PI * 2);
+    ctx.fill();
+
     // Speed ring
     if (pl.speedBoost) {
       ctx.strokeStyle = '#f1c40f';
       ctx.lineWidth = 2.5;
       ctx.setLineDash([4, 3]);
       ctx.beginPath();
-      ctx.arc(cx, cy, r + 5, now / 200, now / 200 + Math.PI * 1.5);
+      ctx.arc(cx, cy, Math.max(rx, ry) + 5, now / 200, now / 200 + Math.PI * 1.5);
       ctx.stroke();
       ctx.setLineDash([]);
     }
 
     // Name label
-    ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
     ctx.fillStyle = '#fff';
-    ctx.font = `bold ${isMe ? 11 : 10}px Segoe UI`;
+    ctx.font = `bold ${isMe ? 12 : 10}px Segoe UI`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const label = pl.name.length > 8 ? pl.name.slice(0, 7) + '…' : pl.name;
-    ctx.fillText(label, cx, py - 6);
+    ctx.fillText(label, cx, cy - ry - 10);
 
     // Hearts below
     const hearts = '❤'.repeat(pl.lives);
-    ctx.font = '8px serif';
-    ctx.fillText(hearts, cx, py + ts + 6);
+    ctx.font = `${ts * 0.22}px serif`;
+    ctx.fillText(hearts, cx, cy + ry + 10);
 
     ctx.restore();
   }
@@ -673,12 +733,15 @@
 
   function forceReset() {
     ws.send(JSON.stringify({ type: 'resetGame' }));
+    setTimeout(() => location.reload(), 300);
   }
   document.getElementById('forceResetLobbyBtn').addEventListener('click', forceReset);
+  document.getElementById('forceResetEndBtn').addEventListener('click', forceReset);
   document.getElementById('forceResetGameBtn').addEventListener('click', forceReset);
 
   restartBtn.addEventListener('click', () => {
     ws.send(JSON.stringify({ type: 'resetGame' }));
+    setTimeout(() => location.reload(), 300);
   });
 
   // ── Render Loop ────────────────────────────────────────────────────────
