@@ -726,6 +726,7 @@
         resizeCanvas();
         snapCamera();
         startRenderLoop();
+        document.dispatchEvent(new Event('chromatag:gamestart'));
         break;
 
       case 'state':
@@ -996,14 +997,11 @@
     touchStart = null;
   });
 
-  // Init mobile sidebar on game start
-  const origShowScreen = showScreen;
-  function showScreen(name) {
-    origShowScreen(name);
-    if (name === 'game') {
-      setTimeout(() => { initMobileSidebar(); resizeCanvas(); }, 50);
-    }
-  }
+  // Init mobile sidebar when game starts - hook into gameStart message
+  // (no showScreen override needed - avoids infinite recursion)
+  document.addEventListener('chromatag:gamestart', () => {
+    setTimeout(() => { initMobileSidebar(); resizeCanvas(); snapCamera(); }, 50);
+  });
 
 })();
 </script>
