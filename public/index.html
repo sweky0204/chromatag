@@ -93,6 +93,7 @@
   <p id="lobbyStatus">Waiting for players… (2–8)</p>
   <button class="btn btn-start" id="startBtn">▶ Start Game</button>
   <p style="color:#555;font-size:.8rem;margin-top:8px;">Red catches Blue · Blue catches Green · Green catches Red</p>
+  <button class="btn" id="forceResetLobbyBtn" style="background:#333;color:#aaa;font-size:.8rem;margin-top:4px;">⚠️ Force Reset Session</button>
 </div>
 
 <!-- COUNTDOWN -->
@@ -107,6 +108,7 @@
     <h3>Players</h3>
     <div id="sidebarPlayers"></div>
     <div style="flex:1"></div>
+    <button id="forceResetGameBtn" style="background:#3a1a1a;color:#e74c3c;border:1px solid #e74c3c;border-radius:6px;padding:6px 10px;font-size:.75rem;font-weight:700;cursor:pointer;margin-bottom:8px;">⚠️ Force Reset</button>
     <h3 style="margin-top:8px;">Legend</h3>
     <div style="font-size:.72rem;color:#aaa;line-height:1.8;">
       🟡 Speed 2× (5s)<br>
@@ -668,6 +670,12 @@
   exitBtn.addEventListener('click', () => {
     ws.send(JSON.stringify({ type: 'spectate' }));
   });
+
+  function forceReset() {
+    ws.send(JSON.stringify({ type: 'resetGame' }));
+  }
+  document.getElementById('forceResetLobbyBtn').addEventListener('click', forceReset);
+  document.getElementById('forceResetGameBtn').addEventListener('click', forceReset);
 
   restartBtn.addEventListener('click', () => {
     ws.send(JSON.stringify({ type: 'resetGame' }));

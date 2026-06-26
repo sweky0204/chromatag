@@ -563,13 +563,16 @@ wss.on('connection', (ws) => {
     if (playerId && state && state.players[playerId]) {
       delete state.players[playerId];
       broadcast({ type: 'playerLeft', playerId });
-      // If lobby empty, clear state
+      // If no players left at all, fully reset regardless of game phase
       if (Object.keys(state.players).length === 0) {
         clearTimeout(reshuffleTimer);
         clearInterval(pickupTimer);
         clearInterval(gameLoop);
         gameLoop = null;
         state = null;
+      } else if (state.phase === 'playing') {
+        // Mark disconnected player as dead so game can continue/end
+        checkWin();
       }
     }
   });
