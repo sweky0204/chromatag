@@ -509,7 +509,7 @@ wss.on('connection', (ws) => {
           state.phase = 'playing';
           totalEliminations = 0;
           lastShrinkAt = 0;
-          broadcast({ type: 'gameStart', players: state.players });
+          broadcast({ type: 'gameStart', players: state.players, tiles: state.tiles, mapSize: state.mapSize });
           startGameLoop();
           scheduleReshuffle();
           pickupTimer = setInterval(() => { spawnPickups(); }, PICKUP_SPAWN_INTERVAL_MS);

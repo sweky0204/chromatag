@@ -216,6 +216,14 @@
   window.addEventListener('resize', resizeCanvas);
   resizeCanvas();
 
+  function snapCamera() {
+    const me = gameState.players[myId];
+    if (!me) return;
+    const tw = TILE_SIZE, th = TILE_SIZE;
+    camera.x = me.x * tw + tw / 2 - canvas.width / 2;
+    camera.y = me.y * th + th / 2 - canvas.height / 2;
+  }
+
   function updateCamera() {
     const me = gameState.players[myId];
     if (!me) return;
@@ -530,10 +538,14 @@
 
       case 'gameStart':
         gameState.players = msg.players;
+        if (msg.tiles) gameState.tiles = msg.tiles;
+        if (msg.mapSize) gameState.mapSize = msg.mapSize;
         spectateOverlay.classList.remove('show');
         reshuffleIn = 5000;
         reshuffleStart = Date.now();
         showScreen('game');
+        resizeCanvas();
+        snapCamera();
         startRenderLoop();
         break;
 
