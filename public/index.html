@@ -78,9 +78,39 @@
   /* Toast */
   #toast { position:fixed; top:60px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.85); border-radius:12px; padding:8px 20px; font-size:.9rem; pointer-events:none; opacity:0; transition:opacity .3s; z-index:100; }
   #toast.show { opacity:1; }
+
+  /* ── Mobile sidebar overlay toggle ── */
+  #sidebarToggle { display:none; position:absolute; left:0; top:50%; transform:translateY(-50%); z-index:20; background:rgba(22,33,62,.92); border:none; border-radius:0 12px 12px 0; color:#fff; font-size:1rem; padding:10px 6px; cursor:pointer; line-height:1; }
+  #sidebar.mobile-hidden { transform:translateX(-100%); position:absolute; height:100%; z-index:15; transition:transform .25s; }
+  #sidebar.mobile-visible { transform:translateX(0); position:absolute; height:100%; z-index:15; transition:transform .25s; }
+
+  /* ── Rotate banner ── */
+  #rotateBanner { display:none; position:fixed; inset:0; background:#0d0d1a; z-index:9999; flex-direction:column; align-items:center; justify-content:center; gap:16px; }
+  #rotateBanner.show { display:flex; }
+  #rotateBanner .rotate-icon { font-size:4rem; animation:rotateAnim 1.5s infinite; }
+  @keyframes rotateAnim { 0%{transform:rotate(0deg)} 50%{transform:rotate(90deg)} 100%{transform:rotate(90deg)} }
+  #rotateBanner p { color:#aaa; font-size:1.1rem; text-align:center; padding:0 24px; }
+
+  /* ── Mobile HUD compact ── */
+  @media (max-width: 768px) and (orientation: landscape) {
+    #hud { top:auto; bottom:52px; left:50%; transform:translateX(-50%); gap:8px; }
+    .hud-pill { font-size:.65rem; padding:3px 10px; }
+    #myStatus { bottom:6px; padding:5px 12px; font-size:.75rem; gap:8px; background:rgba(0,0,0,.6); }
+    .pu-badge { padding:2px 6px; font-size:.65rem; }
+    #lobbyScreen h1 { font-size:2.2rem; }
+  }
+  @media (max-width: 768px) and (orientation: portrait) {
+    #rotateBanner { display:flex; }
+  }
 </style>
 </head>
 <body>
+
+<!-- ROTATE BANNER -->
+<div id="rotateBanner">
+  <div class="rotate-icon">📱</div>
+  <p>Please rotate your phone to <strong>landscape</strong> for the best ChromaTag experience!</p>
+</div>
 
 <!-- LOBBY -->
 <div id="lobbyScreen" class="screen active">
@@ -126,6 +156,7 @@
     </div>
   </div>
   <div id="canvas-wrap">
+    <button id="sidebarToggle" title="Toggle sidebar">◀</button>
     <canvas id="gameCanvas"></canvas>
     <div id="hud">
       <div class="hud-pill" id="reshuffleHud">🔀 Reshuffle: <span id="reshuffleCountdown">5s</span></div>
@@ -857,6 +888,121 @@
     fl.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,.18);pointer-events:none;z-index:999;transition:opacity .4s';
     document.body.appendChild(fl);
     setTimeout(() => { fl.style.opacity = '0'; setTimeout(() => fl.remove(), 400); }, 80);
+  }
+
+  // ── Mobile Detection ───────────────────────────────────────────────────
+  const isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || window.innerWidth <= 768;
+
+  // ── Rotate Banner ──────────────────────────────────────────────────────
+  const rotateBanner = document.getElementById('rotateBanner');
+  function checkOrientation() {
+    if (!isMobile) return;
+    const portrait = window.innerHeight > window.innerWidth;
+    rotateBanner.classList.toggle('show', portrait);
+  }
+  window.addEventListener('resize', checkOrientation);
+  window.addEventListener('orientationchange', () => setTimeout(checkOrientation, 200));
+  checkOrientation();
+
+  // ── Mobile Sidebar Toggle ──────────────────────────────────────────────
+  const sidebar = document.getElementById('sidebar');
+  const sidebarToggle = document.getElementById('sidebarToggle');
+  let sidebarOpen = false;
+
+  function initMobileSidebar() {
+    if (!isMobile) return;
+    sidebarToggle.style.display = 'block';
+    sidebar.classList.add('mobile-hidden');
+    sidebarOpen = false;
+    sidebarToggle.textContent = '▶';
+  }
+
+  sidebarToggle.addEventListener('click', () => {
+    sidebarOpen = !sidebarOpen;
+    sidebar.classList.toggle('mobile-hidden', !sidebarOpen);
+    sidebar.classList.toggle('mobile-visible', sidebarOpen);
+    sidebarToggle.textContent = sidebarOpen ? '◀' : '▶';
+    // Shift toggle pill when sidebar open
+    sidebarToggle.style.left = sidebarOpen ? '200px' : '0';
+  });
+
+  // ── Touch / Swipe Controls ─────────────────────────────────────────────
+  const SWIPE_THRESHOLD = 20; // px
+  let touchStart = null;
+  let swipeDir = null;
+  let swipeMoveInterval = null;
+
+  function getMobileMoveDelay() {
+    const me = gameState.players[myId];
+    return (me && me.speedBoost) ? 80 : 160;
+  }
+
+  function sendSwipeMove(dir) {
+    const me = gameState.players[myId];
+    if (!me || !me.alive) return;
+    ws.send(JSON.stringify({ type: 'move', dx: dir.dx, dy: dir.dy }));
+  }
+
+  function startSwipeLoop(dir) {
+    stopSwipeLoop();
+    swipeDir = dir;
+    sendSwipeMove(dir);
+    swipeMoveInterval = setInterval(() => {
+      if (swipeDir) sendSwipeMove(swipeDir);
+    }, getMobileMoveDelay());
+  }
+
+  function stopSwipeLoop() {
+    if (swipeMoveInterval) { clearInterval(swipeMoveInterval); swipeMoveInterval = null; }
+    swipeDir = null;
+  }
+
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    const t = e.touches[0];
+    touchStart = { x: t.clientX, y: t.clientY };
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (!touchStart) return;
+    const t = e.touches[0];
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    const absDx = Math.abs(dx), absDy = Math.abs(dy);
+    if (absDx < SWIPE_THRESHOLD && absDy < SWIPE_THRESHOLD) return;
+    let dir;
+    if (absDx > absDy) {
+      dir = dx > 0 ? { dx: 1, dy: 0 } : { dx: -1, dy: 0 };
+    } else {
+      dir = dy > 0 ? { dx: 0, dy: 1 } : { dx: 0, dy: -1 };
+    }
+    // Only restart loop if direction changed
+    if (!swipeDir || swipeDir.dx !== dir.dx || swipeDir.dy !== dir.dy) {
+      startSwipeLoop(dir);
+      // Reset anchor to current touch position for continuous direction updates
+      touchStart = { x: t.clientX, y: t.clientY };
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', e => {
+    e.preventDefault();
+    stopSwipeLoop();
+    touchStart = null;
+  }, { passive: false });
+
+  canvas.addEventListener('touchcancel', () => {
+    stopSwipeLoop();
+    touchStart = null;
+  });
+
+  // Init mobile sidebar on game start
+  const origShowScreen = showScreen;
+  function showScreen(name) {
+    origShowScreen(name);
+    if (name === 'game') {
+      setTimeout(() => { initMobileSidebar(); resizeCanvas(); }, 50);
+    }
   }
 
 })();
