@@ -53,12 +53,7 @@
   .badge-shield { background:var(--pink); color:#fff; }
   .badge-speed { background:var(--gold); color:#000; }
   .badge-inv { background:#aaa; color:#000; }
-  .prey-section { margin-top:4px; }
-  .prey-toggle { font-size:.68rem; color:#aaa; cursor:pointer; user-select:none; display:flex; align-items:center; gap:4px; background:none; border:none; padding:2px 0; width:100%; text-align:left; }
-  .prey-toggle:hover { color:#fff; }
-  .prey-list { margin-top:3px; display:flex; flex-direction:column; gap:2px; }
-  .prey-list.collapsed { display:none; }
-  .prey-name { font-size:.68rem; padding:2px 6px; border-radius:6px; color:#fff; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .target-name { font-size:.78rem; padding:4px 8px; border-radius:6px; color:#fff; font-weight:600; margin-bottom:3px; }
   #canvas-wrap { flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
   canvas { image-rendering:pixelated; display:block; }
   #hud { position:absolute; top:10px; left:50%; transform:translateX(-50%); display:flex; gap:16px; pointer-events:none; }
@@ -113,12 +108,18 @@
   <div id="sidebar">
     <h3>Players</h3>
     <div id="sidebarPlayers"></div>
+    <div style="margin-top:10px;border-top:1px solid #2a2a4a;padding-top:10px;">
+      <button id="targetsToggleBtn" style="background:none;border:none;color:#fff;font-size:.8rem;font-weight:700;cursor:pointer;width:100%;text-align:left;padding:2px 0;display:flex;align-items:center;gap:6px;">
+        <span id="targetsArrow">▶</span> 🎯 My Targets
+      </button>
+      <div id="targetsList" style="display:none;margin-top:6px;"></div>
+    </div>
     <div style="flex:1"></div>
     <button id="forceResetGameBtn" style="background:#3a1a1a;color:#e74c3c;border:1px solid #e74c3c;border-radius:6px;padding:6px 10px;font-size:.75rem;font-weight:700;cursor:pointer;margin-bottom:8px;">⚠️ Force Reset</button>
     <h3 style="margin-top:8px;">Legend</h3>
     <div style="font-size:.72rem;color:#aaa;line-height:1.8;">
-      🟡 Speed 2× (5s)<br>
-      🩷 Shield (4s)<br>
+      ⚡ Speed 2× (5s)<br>
+      🛡️ Shield (4s)<br>
       🟣 Purple Portal<br>
       🟢 Green Portal<br>
       ❤️ 3 lives each
@@ -212,7 +213,7 @@
   }
 
   // ── Canvas / Tile Rendering ────────────────────────────────────────────
-  const TILE_SIZE = 52;  // zoomed in - player sees ~7 tiles each side
+  const TILE_SIZE = 96;  // very zoomed in - player sees ~4 tiles each side
   const TILE_BASE   = { white: '#c8cdd8', red: '#7a1515', blue: '#0d3b6e', green: '#0d4a20' };
   const TILE_GLOW   = { white: null, red: '#e74c3c', blue: '#3498db', green: '#2ecc71' };
   const PLAYER_COLORS_HEX = { red: '#e74c3c', blue: '#3498db', green: '#2ecc71' };
@@ -529,10 +530,8 @@
     reshuffleCountdown.textContent = (remaining / 1000).toFixed(1) + 's';
   }
 
-  // Which color does attacker catch?
   const PREY_COLOR = { red: 'blue', blue: 'green', green: 'red' };
-  // Track collapse state per player card
-  const preyCollapsed = {};
+  let targetsOpen = false;
 
   function updateSidebar() {
     const sorted = Object.values(gameState.players).sort((a, b) => b.lives - a.lives);
@@ -548,24 +547,6 @@
       if (pl.speedBoost && pl.speedEnd > now) badges += '<span class="badge badge-speed">SPEED</span>';
       if (pl.invincible && pl.invincibleEnd > now) badges += '<span class="badge badge-inv">SAFE</span>';
       const isMe = pl.id === myId;
-
-      // Prey list: who can this player catch right now?
-      const preyColor = PREY_COLOR[pl.color];
-      const preyPlayers = preyColor
-        ? Object.values(gameState.players).filter(p => p.alive && p.id !== pl.id && p.color === preyColor)
-        : [];
-      const collapsed = preyCollapsed[pl.id] !== false; // default collapsed
-      const preyHtml = preyPlayers.length > 0 ? `
-        <div class="prey-section">
-          <button class="prey-toggle" data-pid="${pl.id}">
-            <span>${collapsed ? '▶' : '▼'}</span>
-            <span style="color:${PLAYER_COLORS_HEX[preyColor]||'#aaa'}">🎯 ${preyPlayers.length} target${preyPlayers.length>1?'s':''}</span>
-          </button>
-          <div class="prey-list ${collapsed ? 'collapsed' : ''}">
-            ${preyPlayers.map(p => `<div class="prey-name" style="background:${PLAYER_COLORS_HEX[preyColor]||'#333'}44;border-left:2px solid ${PLAYER_COLORS_HEX[preyColor]||'#aaa'}">${escHtml(p.name)}</div>`).join('')}
-          </div>
-        </div>` : '';
-
       card.innerHTML = `
         <div class="pname">${escHtml(pl.name)}${isMe ? ' <span style="color:#f1c40f;font-size:.7rem">YOU</span>' : ''}</div>
         <div class="pinfo">
@@ -574,18 +555,32 @@
           ${pl.alive ? '' : '<span style="color:#e74c3c">💀</span>'}
         </div>
         ${badges ? `<div class="badges">${badges}</div>` : ''}
-        ${preyHtml}
       `;
       sidebarPlayers.appendChild(card);
     }
-    // Wire up prey toggle buttons
-    sidebarPlayers.querySelectorAll('.prey-toggle').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const pid = btn.dataset.pid;
-        preyCollapsed[pid] = !preyCollapsed[pid];
-        updateSidebar();
-      });
-    });
+    updateTargets();
+  }
+
+  function updateTargets() {
+    const me = gameState.players[myId];
+    const targetsList = document.getElementById('targetsList');
+    const targetsArrow = document.getElementById('targetsArrow');
+    if (!targetsList || !targetsArrow) return;
+    targetsArrow.textContent = targetsOpen ? '▼' : '▶';
+    targetsList.style.display = targetsOpen ? 'block' : 'none';
+    if (!me || !me.alive || !me.color) {
+      targetsList.innerHTML = '<div style="font-size:.75rem;color:#666;padding:2px 4px;">Not in game</div>';
+      return;
+    }
+    const preyColor = PREY_COLOR[me.color];
+    const targets = Object.values(gameState.players).filter(p => p.alive && p.id !== myId && p.color === preyColor);
+    if (targets.length === 0) {
+      targetsList.innerHTML = `<div style="font-size:.75rem;color:#666;padding:2px 4px;">No ${preyColor} players alive</div>`;
+    } else {
+      targetsList.innerHTML = targets.map(p =>
+        `<div class="target-name" style="background:${PLAYER_COLORS_HEX[preyColor]||'#333'}33;border-left:3px solid ${PLAYER_COLORS_HEX[preyColor]||'#aaa'}">${escHtml(p.name)}</div>`
+      ).join('');
+    }
   }
 
   function escHtml(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -712,7 +707,7 @@
 
       case 'reshuffle':
         gameState.tiles = msg.tiles;
-        reshuffleIn = msg.reshuffleIn || 5000;
+        reshuffleIn = msg.reshuffleIn || 8000;
         reshuffleStart = Date.now();
         flashScreen();
         break;
@@ -827,6 +822,10 @@
     setTimeout(() => location.reload(), 300);
   }
   document.getElementById('forceResetLobbyBtn').addEventListener('click', forceReset);
+  document.getElementById('targetsToggleBtn').addEventListener('click', () => {
+    targetsOpen = !targetsOpen;
+    updateTargets();
+  });
   document.getElementById('forceResetEndBtn').addEventListener('click', forceReset);
   document.getElementById('forceResetGameBtn').addEventListener('click', forceReset);
 
