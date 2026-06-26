@@ -448,7 +448,10 @@
     A: { dx: -1, dy: 0 }, D: { dx: 1, dy: 0 },
   };
 
+  function isTyping() { const t = document.activeElement?.tagName; return t === 'INPUT' || t === 'TEXTAREA'; }
+
   document.addEventListener('keydown', e => {
+    if (isTyping()) return;
     if (KEY_MAP[e.key]) {
       e.preventDefault();
       keysDown[e.key] = true;
@@ -457,6 +460,7 @@
   });
 
   document.addEventListener('keyup', e => {
+    if (isTyping()) return;
     delete keysDown[e.key];
     if (!Object.keys(keysDown).some(k => KEY_MAP[k])) {
       clearInterval(moveInterval);

@@ -475,6 +475,12 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'error', message: 'Need at least 2 players to start' }));
         return;
       }
+      // Scale starting map size to player count
+      // 2 players -> 20x20, 3-4 -> 26x26, 5-6 -> 32x32, 7-8 -> 40x40
+      if      (pCount <= 2) state.mapSize = 20;
+      else if (pCount <= 4) state.mapSize = 26;
+      else if (pCount <= 6) state.mapSize = 32;
+      else                  state.mapSize = 40;
       // Init map
       state.tiles = generateTiles(state.mapSize);
       // Random spawn all players
