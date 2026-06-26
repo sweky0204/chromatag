@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ChromaTag</title>
+<style>
+  :root {
+    --red: #e74c3c; --blue: #3498db; --green: #2ecc71; --white: #ecf0f1;
+    --void: #0d0d0d; --bg: #1a1a2e; --panel: #16213e; --accent: #e94560;
+    --gold: #f1c40f; --pink: #e91e8c; --purple: #9b59b6; --teal: #1abc9c;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:#fff; font-family:'Segoe UI',Arial,sans-serif; overflow:hidden; height:100vh; display:flex; flex-direction:column; }
+
+  /* ── Screens ── */
+  .screen { display:none; flex-direction:column; align-items:center; justify-content:center; height:100vh; gap:16px; }
+  .screen.active { display:flex; }
+
+  /* Lobby */
+  #lobbyScreen h1 { font-size:3.5rem; font-weight:900; letter-spacing:2px; background:linear-gradient(90deg,var(--red),var(--blue),var(--green)); -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  #lobbyScreen p.tagline { color:#aaa; font-size:1rem; margin-top:-8px; }
+  .input-row { display:flex; gap:8px; }
+  .input-row input { padding:10px 16px; border-radius:8px; border:2px solid #333; background:#0d0d1a; color:#fff; font-size:1rem; outline:none; width:220px; }
+  .input-row input:focus { border-color:var(--accent); }
+  .btn { padding:10px 28px; border:none; border-radius:8px; font-size:1rem; font-weight:700; cursor:pointer; transition:.15s; }
+  .btn-join { background:var(--accent); color:#fff; }
+  .btn-join:hover { filter:brightness(1.2); }
+  .btn-start { background:var(--green); color:#fff; font-size:1.1rem; padding:12px 36px; }
+  .btn-start:hover { filter:brightness(1.1); }
+  .btn-start:disabled { background:#555; cursor:not-allowed; }
+  #playerList { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; max-width:480px; }
+  .player-chip { padding:6px 14px; border-radius:20px; font-size:.85rem; font-weight:600; border:2px solid #444; background:#0d0d1a; }
+  #lobbyStatus { color:#aaa; font-size:.9rem; }
+  #startBtn { display:none; }
+
+  /* Countdown */
+  #countdownScreen h2 { font-size:1.2rem; color:#aaa; }
+  #countdownNum { font-size:8rem; font-weight:900; color:#fff; text-shadow:0 0 40px var(--accent); animation:pulse .9s infinite; }
+  @keyframes pulse { 0%,100%{transform:scale(1)} 50%{transform:scale(1.08)} }
+
+  /* Game */
+  #gameScreen { padding:0; flex-direction:row; align-items:stretch; justify-content:flex-start; }
+  #sidebar { width:200px; min-width:200px; background:var(--panel); display:flex; flex-direction:column; gap:12px; padding:14px 10px; overflow-y:auto; }
+  #sidebar h3 { font-size:.8rem; text-transform:uppercase; color:#888; letter-spacing:1px; }
+  .player-card { border-radius:8px; padding:8px 10px; background:#0d0d1a; border-left:4px solid #555; transition:.3s; }
+  .player-card.dead { opacity:.4; }
+  .player-card .pname { font-weight:700; font-size:.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .player-card .pinfo { font-size:.75rem; color:#aaa; display:flex; gap:6px; align-items:center; margin-top:3px; }
+  .hearts { color:#e74c3c; letter-spacing:1px; }
+  .badges { display:flex; gap:4px; flex-wrap:wrap; margin-top:4px; }
+  .badge { font-size:.65rem; padding:2px 6px; border-radius:10px; font-weight:700; }
+  .badge-shield { background:var(--pink); color:#fff; }
+  .badge-speed { background:var(--gold); color:#000; }
+  .badge-inv { background:#aaa; color:#000; }
+  #canvas-wrap { flex:1; display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative; }
+  canvas { image-rendering:pixelated; display:block; }
+  #hud { position:absolute; top:10px; left:50%; transform:translateX(-50%); display:flex; gap:16px; pointer-events:none; }
+  .hud-pill { background:rgba(0,0,0,.7); border-radius:20px; padding:5px 14px; font-size:.8rem; font-weight:700; display:flex; align-items:center; gap:6px; }
+  #myStatus { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.8); border-radius:12px; padding:8px 18px; display:flex; gap:16px; align-items:center; font-size:.9rem; pointer-events:none; }
+  .mycolor-dot { width:14px; height:14px; border-radius:50%; display:inline-block; }
+  #powerupBar { display:flex; gap:8px; }
+  .pu-badge { padding:4px 10px; border-radius:10px; font-size:.78rem; font-weight:700; }
+
+  /* End */
+  #endScreen { gap:20px; }
+  #endScreen h2 { font-size:2rem; color:#aaa; }
+  #endScreen .winner { font-size:3rem; font-weight:900; color:var(--gold); text-shadow:0 0 30px var(--gold); }
+  .btn-restart { background:var(--accent); color:#fff; font-size:1.1rem; padding:12px 36px; }
+
+  /* Spectate overlay */
+  #spectateOverlay { display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,.55); align-items:center; justify-content:center; flex-direction:column; gap:12px; z-index:10; }
+  #spectateOverlay.show { display:flex; }
+  #spectateOverlay p { font-size:1.2rem; color:#fff; }
+  .btn-spec { background:#333; color:#fff; }
+
+  /* Toast */
+  #toast { position:fixed; top:60px; left:50%; transform:translateX(-50%); background:rgba(0,0,0,.85); border-radius:12px; padding:8px 20px; font-size:.9rem; pointer-events:none; opacity:0; transition:opacity .3s; z-index:100; }
+  #toast.show { opacity:1; }
+</style>
+</head>
+<body>
+
+<!-- LOBBY -->
+<div id="lobbyScreen" class="screen active">
+  <h1>ChromaTag</h1>
+  <p class="tagline">Step on color. Become the color. Catch your prey.</p>
+  <div class="input-row">
+    <input id="nameInput" type="text" placeholder="Your name" maxlength="16" />
+    <button class="btn btn-join" id="joinBtn">Join</button>
+  </div>
+  <div id="playerList"></div>
+  <p id="lobbyStatus">Waiting for players… (2–8)</p>
+  <button class="btn btn-start" id="startBtn">▶ Start Game</button>
+  <p style="color:#555;font-size:.8rem;margin-top:8px;">Red catches Blue · Blue catches Green · Green catches Red</p>
+</div>
+
+<!-- COUNTDOWN -->
+<div id="countdownScreen" class="screen">
+  <h2>Get Ready!</h2>
+  <div id="countdownNum">5</div>
+</div>
+
+<!-- GAME -->
+<div id="gameScreen" class="screen">
+  <div id="sidebar">
+    <h3>Players</h3>
+    <div id="sidebarPlayers"></div>
+    <div style="flex:1"></div>
+    <h3 style="margin-top:8px;">Legend</h3>
+    <div style="font-size:.72rem;color:#aaa;line-height:1.8;">
+      🟡 Speed 2× (5s)<br>
+      🩷 Shield (4s)<br>
+      🟣 Purple Portal<br>
+      🟢 Green Portal<br>
+      ❤️ 3 lives each
+    </div>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="gameCanvas"></canvas>
+    <div id="hud">
+      <div class="hud-pill" id="reshuffleHud">🔀 Reshuffle: <span id="reshuffleCountdown">5s</span></div>
+      <div class="hud-pill" id="mapSizeHud">🗺️ Map: <span id="mapSizeVal">40×40</span></div>
+    </div>
+    <div id="myStatus">
+      <span class="mycolor-dot" id="myColorDot"></span>
+      <span id="myColorLabel">–</span>
+      <span id="myHearts">❤️❤️❤️</span>
+      <div id="powerupBar"></div>
+    </div>
+    <div id="spectateOverlay">
+      <p>💀 You've been eliminated!</p>
+      <p style="color:#aaa;font-size:.9rem;">Spectating…</p>
+      <button class="btn btn-spec" id="exitBtn">Exit to Lobby</button>
+    </div>
+  </div>
+</div>
+
+<!-- END -->
+<div id="endScreen" class="screen">
+  <h2>Game Over!</h2>
+  <div class="winner" id="winnerLabel">Player 1 Wins!</div>
+  <button class="btn btn-restart" id="restartBtn">Play Again</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  // ── WebSocket ──────────────────────────────────────────────────────────
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}`);
+
+  let myId = null;
+  let gameState = { players: {}, pickups: {}, mapSize: 40, tiles: [] };
+  let camera = { x: 0, y: 0 };
+  let reshuffleIn = 5000;
+  let reshuffleTimer = null;
+  let reshuffleStart = Date.now();
+  let inputCooldown = false;
+  let moveInterval = null;
+  let keysDown = {};
+  let powerupTimers = {};
+
+  // ── DOM ────────────────────────────────────────────────────────────────
+  const screens = {
+    lobby: document.getElementById('lobbyScreen'),
+    countdown: document.getElementById('countdownScreen'),
+    game: document.getElementById('gameScreen'),
+    end: document.getElementById('endScreen'),
+  };
+  const nameInput = document.getElementById('nameInput');
+  const joinBtn = document.getElementById('joinBtn');
+  const startBtn = document.getElementById('startBtn');
+  const playerList = document.getElementById('playerList');
+  const lobbyStatus = document.getElementById('lobbyStatus');
+  const countdownNum = document.getElementById('countdownNum');
+  const sidebarPlayers = document.getElementById('sidebarPlayers');
+  const winnerLabel = document.getElementById('winnerLabel');
+  const restartBtn = document.getElementById('restartBtn');
+  const exitBtn = document.getElementById('exitBtn');
+  const spectateOverlay = document.getElementById('spectateOverlay');
+  const reshuffleCountdown = document.getElementById('reshuffleCountdown');
+  const mapSizeVal = document.getElementById('mapSizeVal');
+  const myColorDot = document.getElementById('myColorDot');
+  const myColorLabel = document.getElementById('myColorLabel');
+  const myHearts = document.getElementById('myHearts');
+  const powerupBar = document.getElementById('powerupBar');
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const toast = document.getElementById('toast');
+
+  function showScreen(name) {
+    for (const s of Object.values(screens)) s.classList.remove('active');
+    screens[name].classList.add('active');
+  }
+
+  function showToast(msg, ms = 2200) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => toast.classList.remove('show'), ms);
+  }
+
+  // ── Canvas / Tile Rendering ────────────────────────────────────────────
+  const TILE_SIZE = 28;
+  const TILE_COLORS = { white: '#d0d4de', red: '#c0392b', blue: '#2980b9', green: '#27ae60', void: '#0a0a0a' };
+  const PLAYER_COLORS_HEX = { red: '#e74c3c', blue: '#3498db', green: '#2ecc71' };
+  const PLAYER_BORDER = { red: '#c0392b', blue: '#2471a3', green: '#1e8449' };
+
+  function resizeCanvas() {
+    const wrap = document.getElementById('canvas-wrap');
+    canvas.width = wrap.clientWidth;
+    canvas.height = wrap.clientHeight;
+  }
+  window.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+
+  function updateCamera() {
+    const me = gameState.players[myId];
+    if (!me) return;
+    const tw = TILE_SIZE, th = TILE_SIZE;
+    const targetX = me.x * tw + tw / 2 - canvas.width / 2;
+    const targetY = me.y * th + th / 2 - canvas.height / 2;
+    camera.x += (targetX - camera.x) * 0.15;
+    camera.y += (targetY - camera.y) * 0.15;
+  }
+
+  function drawGame() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#0a0a0a';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const ts = TILE_SIZE;
+    const ms = gameState.mapSize;
+    const ox = Math.round(-camera.x);
+    const oy = Math.round(-camera.y);
+
+    // Tiles
+    for (let y = 0; y < ms; y++) {
+      for (let x = 0; x < ms; x++) {
+        const tile = gameState.tiles[y * ms + x] || 'white';
+        ctx.fillStyle = TILE_COLORS[tile] || '#ccc';
+        ctx.fillRect(ox + x * ts, oy + y * ts, ts - 1, ts - 1);
+      }
+    }
+
+    // Void border glow
+    const now = Date.now();
+
+    // Pickups
+    for (const pk of Object.values(gameState.pickups)) {
+      const px = ox + pk.x * ts + ts / 2;
+      const py = oy + pk.y * ts + ts / 2;
+      const bob = Math.sin(now / 400 + pk.x + pk.y) * 2;
+      drawPickup(pk.type, px, py + bob, ts);
+    }
+
+    // Players
+    for (const pl of Object.values(gameState.players)) {
+      if (!pl.alive) continue;
+      const px = ox + pl.x * ts;
+      const py = oy + pl.y * ts;
+      drawPlayer(pl, px, py, ts, now);
+    }
+
+    updateHUD();
+  }
+
+  function drawPickup(type, cx, cy, ts) {
+    const r = ts * 0.26;
+    ctx.save();
+    ctx.shadowBlur = 12;
+    if (type === 'speed') {
+      ctx.shadowColor = '#f1c40f';
+      ctx.fillStyle = '#f1c40f';
+      drawGem(ctx, cx, cy, r);
+    } else if (type === 'shield') {
+      ctx.shadowColor = '#e91e8c';
+      ctx.fillStyle = '#e91e8c';
+      drawGem(ctx, cx, cy, r);
+    } else if (type === 'portal_purple') {
+      ctx.shadowColor = '#9b59b6';
+      ctx.strokeStyle = '#9b59b6';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(155,89,182,.35)';
+      ctx.fill();
+    } else if (type === 'portal_green') {
+      ctx.shadowColor = '#1abc9c';
+      ctx.strokeStyle = '#1abc9c';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(26,188,156,.35)';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawGem(ctx, cx, cy, r) {
+    ctx.beginPath();
+    ctx.moveTo(cx, cy - r);
+    ctx.lineTo(cx + r, cy);
+    ctx.lineTo(cx, cy + r);
+    ctx.lineTo(cx - r, cy);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  function drawPlayer(pl, px, py, ts, now) {
+    const isMe = pl.id === myId;
+    const cx = px + ts / 2, cy = py + ts / 2;
+    const r = ts * 0.36;
+
+    ctx.save();
+
+    // Shield glow
+    if (pl.shield) {
+      ctx.shadowBlur = 18;
+      ctx.shadowColor = '#e91e8c';
+    }
+    // Invincible flicker
+    if (pl.invincible && Math.floor(now / 120) % 2 === 0) {
+      ctx.globalAlpha = 0.4;
+    }
+
+    // Body
+    ctx.fillStyle = PLAYER_COLORS_HEX[pl.color] || '#fff';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Border
+    ctx.strokeStyle = isMe ? '#fff' : (PLAYER_BORDER[pl.color] || '#888');
+    ctx.lineWidth = isMe ? 3 : 2;
+    ctx.stroke();
+
+    // Speed ring
+    if (pl.speedBoost) {
+      ctx.strokeStyle = '#f1c40f';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath();
+      ctx.arc(cx, cy, r + 5, now / 200, now / 200 + Math.PI * 1.5);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Name label
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${isMe ? 11 : 10}px Segoe UI`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const label = pl.name.length > 8 ? pl.name.slice(0, 7) + '…' : pl.name;
+    ctx.fillText(label, cx, py - 6);
+
+    // Hearts below
+    const hearts = '❤'.repeat(pl.lives);
+    ctx.font = '8px serif';
+    ctx.fillText(hearts, cx, py + ts + 6);
+
+    ctx.restore();
+  }
+
+  function updateHUD() {
+    const me = gameState.players[myId];
+    if (!me) return;
+    myColorDot.style.background = PLAYER_COLORS_HEX[me.color] || '#fff';
+    myColorLabel.textContent = me.color ? me.color.toUpperCase() : '–';
+    myHearts.textContent = '❤️'.repeat(me.lives || 0) + '🖤'.repeat(Math.max(0, 3 - (me.lives || 0)));
+
+    // Powerup bar
+    const now = Date.now();
+    let html = '';
+    if (me.shield && me.shieldEnd > now) {
+      const s = ((me.shieldEnd - now) / 1000).toFixed(1);
+      html += `<span class="pu-badge" style="background:#e91e8c">🛡️ ${s}s</span>`;
+    }
+    if (me.speedBoost && me.speedEnd > now) {
+      const s = ((me.speedEnd - now) / 1000).toFixed(1);
+      html += `<span class="pu-badge" style="background:#f1c40f;color:#000">⚡ ${s}s</span>`;
+    }
+    if (me.invincible && me.invincibleEnd > now) {
+      const s = ((me.invincibleEnd - now) / 1000).toFixed(1);
+      html += `<span class="pu-badge" style="background:#aaa;color:#000">✨ ${s}s</span>`;
+    }
+    powerupBar.innerHTML = html;
+
+    mapSizeVal.textContent = `${gameState.mapSize}×${gameState.mapSize}`;
+
+    // Reshuffle countdown
+    const elapsed = Date.now() - reshuffleStart;
+    const remaining = Math.max(0, reshuffleIn - elapsed);
+    reshuffleCountdown.textContent = (remaining / 1000).toFixed(1) + 's';
+  }
+
+  function updateSidebar() {
+    const sorted = Object.values(gameState.players).sort((a, b) => b.lives - a.lives);
+    sidebarPlayers.innerHTML = '';
+    for (const pl of sorted) {
+      const card = document.createElement('div');
+      card.className = 'player-card' + (pl.alive ? '' : ' dead');
+      card.style.borderLeftColor = PLAYER_COLORS_HEX[pl.color] || '#555';
+      const hearts = '❤'.repeat(pl.lives) + '♡'.repeat(Math.max(0, 3 - pl.lives));
+      let badges = '';
+      const now = Date.now();
+      if (pl.shield && pl.shieldEnd > now) badges += '<span class="badge badge-shield">SHIELD</span>';
+      if (pl.speedBoost && pl.speedEnd > now) badges += '<span class="badge badge-speed">SPEED</span>';
+      if (pl.invincible && pl.invincibleEnd > now) badges += '<span class="badge badge-inv">SAFE</span>';
+      const isMe = pl.id === myId;
+      card.innerHTML = `
+        <div class="pname">${escHtml(pl.name)}${isMe ? ' <span style="color:#f1c40f;font-size:.7rem">YOU</span>' : ''}</div>
+        <div class="pinfo">
+          <span class="hearts">${hearts}</span>
+          <span style="color:${PLAYER_COLORS_HEX[pl.color] || '#aaa'}">${pl.color || '–'}</span>
+          ${pl.alive ? '' : '<span style="color:#e74c3c">💀</span>'}
+        </div>
+        ${badges ? `<div class="badges">${badges}</div>` : ''}
+      `;
+      sidebarPlayers.appendChild(card);
+    }
+  }
+
+  function escHtml(s) { return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // ── Input ──────────────────────────────────────────────────────────────
+  const SPEED_NORMAL_MS = 160;
+  const SPEED_BOOST_MS = 80;
+
+  function getMoveDelay() {
+    const me = gameState.players[myId];
+    if (me && me.speedBoost) return SPEED_BOOST_MS;
+    return SPEED_NORMAL_MS;
+  }
+
+  const KEY_MAP = {
+    ArrowUp: { dx: 0, dy: -1 }, ArrowDown: { dx: 0, dy: 1 },
+    ArrowLeft: { dx: -1, dy: 0 }, ArrowRight: { dx: 1, dy: 0 },
+    w: { dx: 0, dy: -1 }, s: { dx: 0, dy: 1 },
+    a: { dx: -1, dy: 0 }, d: { dx: 1, dy: 0 },
+    W: { dx: 0, dy: -1 }, S: { dx: 0, dy: 1 },
+    A: { dx: -1, dy: 0 }, D: { dx: 1, dy: 0 },
+  };
+
+  document.addEventListener('keydown', e => {
+    if (KEY_MAP[e.key]) {
+      e.preventDefault();
+      keysDown[e.key] = true;
+      if (!moveInterval) startMoveLoop();
+    }
+  });
+
+  document.addEventListener('keyup', e => {
+    delete keysDown[e.key];
+    if (!Object.keys(keysDown).some(k => KEY_MAP[k])) {
+      clearInterval(moveInterval);
+      moveInterval = null;
+    }
+  });
+
+  function startMoveLoop() {
+    doMove();
+    moveInterval = setInterval(() => {
+      if (!Object.keys(keysDown).some(k => KEY_MAP[k])) {
+        clearInterval(moveInterval);
+        moveInterval = null;
+        return;
+      }
+      doMove();
+    }, getMoveDelay());
+  }
+
+  function doMove() {
+    const me = gameState.players[myId];
+    if (!me || !me.alive) return;
+    // Priority: last pressed direction
+    const dirs = Object.keys(keysDown).filter(k => KEY_MAP[k]);
+    if (!dirs.length) return;
+    const dir = KEY_MAP[dirs[dirs.length - 1]];
+    if (dir) ws.send(JSON.stringify({ type: 'move', dx: dir.dx, dy: dir.dy }));
+  }
+
+  // ── WS Messages ────────────────────────────────────────────────────────
+  ws.addEventListener('message', e => {
+    let msg;
+    try { msg = JSON.parse(e.data); } catch { return; }
+    handleMsg(msg);
+  });
+
+  ws.addEventListener('close', () => showToast('⚠️ Disconnected from server'));
+
+  function handleMsg(msg) {
+    switch (msg.type) {
+      case 'joined':
+        myId = msg.playerId;
+        Object.assign(gameState, { players: msg.players });
+        updateLobby();
+        break;
+
+      case 'playerJoined':
+        gameState.players = msg.players;
+        updateLobby();
+        showToast(`👋 ${msg.player.name} joined`);
+        break;
+
+      case 'playerLeft':
+        delete gameState.players[msg.playerId];
+        updateLobby();
+        break;
+
+      case 'error':
+        showToast('❌ ' + msg.message);
+        break;
+
+      case 'countdown':
+        if (msg.tiles) { gameState.tiles = msg.tiles; gameState.mapSize = msg.mapSize; gameState.players = msg.players; }
+        countdownNum.textContent = msg.count;
+        if (msg.count === 5) showScreen('countdown');
+        break;
+
+      case 'gameStart':
+        gameState.players = msg.players;
+        spectateOverlay.classList.remove('show');
+        reshuffleIn = 5000;
+        reshuffleStart = Date.now();
+        showScreen('game');
+        startRenderLoop();
+        break;
+
+      case 'state':
+        gameState.players = msg.players;
+        gameState.pickups = msg.pickups;
+        gameState.mapSize = msg.mapSize;
+        if (msg.reshuffleInterval) reshuffleIn = msg.reshuffleInterval;
+        updateSidebar();
+        break;
+
+      case 'reshuffle':
+        gameState.tiles = msg.tiles;
+        reshuffleIn = msg.reshuffleIn || 5000;
+        reshuffleStart = Date.now();
+        flashScreen();
+        break;
+
+      case 'shrink':
+        gameState.mapSize = msg.mapSize;
+        gameState.tiles = msg.tiles;
+        showToast(`🌀 Map shrunk to ${msg.mapSize}×${msg.mapSize}!`);
+        break;
+
+      case 'hit':
+        if (gameState.players[msg.playerId]) {
+          Object.assign(gameState.players[msg.playerId], { lives: msg.lives, x: msg.x, y: msg.y, color: msg.color });
+        }
+        if (msg.playerId === myId) showToast('💔 You were caught! Respawning…');
+        break;
+
+      case 'eliminated':
+        if (gameState.players[msg.playerId]) {
+          gameState.players[msg.playerId].alive = false;
+          gameState.players[msg.playerId].lives = 0;
+        }
+        const elimName = gameState.players[msg.playerId]?.name || 'Someone';
+        const byName = gameState.players[msg.byId]?.name || 'someone';
+        showToast(`💀 ${elimName} was eliminated by ${byName}!`, 3000);
+        if (msg.playerId === myId) {
+          spectateOverlay.classList.add('show');
+        }
+        updateSidebar();
+        break;
+
+      case 'pickupCollected':
+        delete gameState.pickups[msg.pickupId];
+        if (msg.playerId === myId) {
+          const labels = { speed: '⚡ Speed Boost!', shield: '🛡️ Shield Active!' };
+          showToast(labels[msg.effect] || 'Pickup!');
+        }
+        break;
+
+      case 'pickupsExpired':
+        for (const id of msg.ids) delete gameState.pickups[id];
+        break;
+
+      case 'portalUsed':
+        delete gameState.pickups[msg.pickupId];
+        delete gameState.pickups[msg.partnerId];
+        if (msg.playerId === myId) {
+          showToast('🌀 Teleported!');
+          if (gameState.players[myId]) {
+            gameState.players[myId].x = msg.x;
+            gameState.players[myId].y = msg.y;
+            gameState.players[myId].color = msg.color;
+          }
+        }
+        break;
+
+      case 'gameOver':
+        stopRenderLoop();
+        winnerLabel.textContent = msg.winnerId ? `🏆 ${msg.winnerName} Wins!` : "It's a Draw!";
+        showScreen('end');
+        break;
+
+      case 'reset':
+        gameState = { players: {}, pickups: {}, mapSize: 40, tiles: [] };
+        myId = null;
+        stopRenderLoop();
+        showScreen('lobby');
+        playerList.innerHTML = '';
+        lobbyStatus.textContent = 'Waiting for players… (2–8)';
+        startBtn.style.display = 'none';
+        break;
+    }
+  }
+
+  // ── Lobby UI ───────────────────────────────────────────────────────────
+  function updateLobby() {
+    playerList.innerHTML = '';
+    for (const pl of Object.values(gameState.players)) {
+      const chip = document.createElement('div');
+      chip.className = 'player-chip';
+      chip.textContent = pl.name;
+      if (pl.id === myId) chip.style.borderColor = '#f1c40f';
+      playerList.appendChild(chip);
+    }
+    const count = Object.keys(gameState.players).length;
+    lobbyStatus.textContent = count === 0 ? 'Waiting for players… (2–8)' : `${count}/8 players joined`;
+    if (myId) {
+      startBtn.style.display = count >= 2 ? 'block' : 'none';
+    }
+  }
+
+  joinBtn.addEventListener('click', () => {
+    const name = nameInput.value.trim() || `Player${Math.floor(Math.random()*99)+1}`;
+    if (myId) { showToast('Already joined!'); return; }
+    ws.send(JSON.stringify({ type: 'join', name }));
+    joinBtn.disabled = true;
+    nameInput.disabled = true;
+  });
+
+  nameInput.addEventListener('keydown', e => { if (e.key === 'Enter') joinBtn.click(); });
+
+  startBtn.addEventListener('click', () => {
+    ws.send(JSON.stringify({ type: 'startGame' }));
+  });
+
+  exitBtn.addEventListener('click', () => {
+    ws.send(JSON.stringify({ type: 'spectate' }));
+  });
+
+  restartBtn.addEventListener('click', () => {
+    ws.send(JSON.stringify({ type: 'resetGame' }));
+  });
+
+  // ── Render Loop ────────────────────────────────────────────────────────
+  let rafId = null;
+
+  function startRenderLoop() {
+    if (rafId) return;
+    function loop() {
+      updateCamera();
+      drawGame();
+      rafId = requestAnimationFrame(loop);
+    }
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function stopRenderLoop() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  }
+
+  // ── Screen Flash on Reshuffle ──────────────────────────────────────────
+  function flashScreen() {
+    const fl = document.createElement('div');
+    fl.style.cssText = 'position:fixed;inset:0;background:rgba(255,255,255,.18);pointer-events:none;z-index:999;transition:opacity .4s';
+    document.body.appendChild(fl);
+    setTimeout(() => { fl.style.opacity = '0'; setTimeout(() => fl.remove(), 400); }, 80);
+  }
+
+})();
+</script>
+</body>
+</html>
