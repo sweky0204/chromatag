@@ -7,7 +7,10 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-app.use(express.static(path.join(__dirname, 'public')));
+const publicDir = path.join(__dirname, 'public');
+app.use(express.static(publicDir));
+app.get('/', (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
+app.get('*', (req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 
 // ── Constants ──────────────────────────────────────────────────────────────
 const TILE = { WHITE: 'white', RED: 'red', BLUE: 'blue', GREEN: 'green' };
